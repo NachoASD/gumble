@@ -91,13 +91,36 @@ func Dial(addr string, config *Config) (*Client, error) {
 // nil and an error is returned if server synchronization does not complete by
 // min(time.Now() + dialer.Timeout, dialer.Deadline), or if the server rejects
 // the client.
+
 func DialWithDialer(dialer *net.Dialer, addr string, config *Config, tlsConfig *tls.Config) (*Client, error) {
-	start := time.Now()
 
 	conn, err := tls.DialWithDialer(dialer, "tcp", addr, tlsConfig)
 	if err != nil {
 		return nil, err
 	}
+
+	versionPacket := MumbleProto.Version{
+		Version:   proto.Uint32(ClientVersion),
+		Release:   proto.String("gumble"),
+		Os:        proto.String(runtime.GOOS),
+		OsVersion: proto.String(runtime.GOARCH),
+	}
+	return DialWithTLSConn(conn, config, dialer, versionPacket)
+}
+
+// DialWithTLSConn connects to the Mumble server with an existing tls connection.
+// It can be used to connect to the mumble with proxies.
+//
+// The function returns after the connection has been established, the initial
+// server information has been synced, and the OnConnect handlers have been
+// called.
+//
+// nil and an error is returned if server synchronization does not complete by
+// min(time.Now() + dialer.Timeout, dialer.Deadline), or if the server rejects
+// the client.
+
+func DialWithTLSConn(conn net.Conn, config *Config, dialer *net.Dialer, versionPacket MumbleProto.Version) (*Client, error) {
+	start := time.Now()
 
 	client := &Client{
 		Conn:     NewConn(conn),
@@ -116,12 +139,6 @@ func DialWithDialer(dialer *net.Dialer, addr string, config *Config, tlsConfig *
 	go client.readRoutine()
 
 	// Initial packets
-	versionPacket := MumbleProto.Version{
-		Version:   proto.Uint32(ClientVersion),
-		Release:   proto.String("gumble"),
-		Os:        proto.String(runtime.GOOS),
-		OsVersion: proto.String(runtime.GOARCH),
-	}
 	authenticationPacket := MumbleProto.Authenticate{
 		Username: &client.Config.Username,
 		Password: &client.Config.Password,
